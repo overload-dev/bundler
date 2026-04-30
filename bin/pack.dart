@@ -14,7 +14,7 @@ Future<void> main(List<String> arguments) async {
   final password = arguments[2];
 
   if (password.length != 16) {
-    print("Password length must be 16");
+    print("Password length must be 16 characters long.");
     exit(1);
   }
 
@@ -26,43 +26,50 @@ Future<void> main(List<String> arguments) async {
     return;
   }
 
+  // 1. 기존 출력 파일이 있다면 미리 삭제하여 핸들 충돌 방지
   if (outputFile.existsSync()) {
-    // 기존 파일이 있다면 삭제하여 충돌 방지 (혹은 에러 처리)
-    print('Output file already exists. Deleting existing file...');
+    print('Deleting existing output file...');
     outputFile.deleteSync();
   }
 
   print("Compressing assets...\nIt may take a while...");
 
-  // 출력 파일의 절대 경로를 미리 계산하여 제외 대상으로 지정
+  // 출력 파일의 절대 경로를 미리 계산하여 순환 참조(제외 대상) 지정
   final String absoluteOutputPath = p.canonicalize(outputFile.absolute.path);
 
   final archive = ZipFileEncoder();
   archive.create(outputFilePath);
 
-  // addDirectory 대신 파일을 순회하며 수동으로 추가 (자기 자신 제외 로직)
+  // 2. 디렉토리를 직접 순회하며 파일 추가 (출력 파일 제외 및 비동기 대기)
   final List<FileSystemEntity> entities = assetDir.listSync(recursive: true);
   for (final entity in entities) {
     if (entity is File) {
       final String absoluteEntityPath = p.canonicalize(entity.absolute.path);
 
-      // 현재 쓰기 작업 중인 출력 파일이 입력 디렉토리 안에 포함되어 있다면 제외
+      // 출력 파일이 입력 폴더 내부에 있는 경우 압축 대상에서 제외 (errno 5 방지)
       if (absoluteEntityPath == absoluteOutputPath) {
         continue;
       }
 
       // 상대 경로를 유지하며 압축 파일에 추가
       final String relativePath = p.relative(entity.path, from: assetDir.path);
-      archive.addFile(entity, relativePath);
+      
+      // archive 4.x 대응: 비동기 추가 작업 대기
+      await archive.addFile(entity, relativePath);
     }
   }
 
-  archive.close();
+  // 3. 압축 스트림을 확실히 닫을 때까지 대기
+  await archive.close();
 
-  // AES encrypt the file
+  // 4. AES 암호화 단계
   print("Encrypting bundle...");
+  
+  // 압축이 완전히 끝난 후 파일을 읽어 암호화 진행
   final outputFileBytes = await outputFile.readAsBytes();
   final encryptedBytes = await Bundler().aesEncrypt(outputFileBytes, password);
+  
+  // 암호화된 데이터로 원본 파일 덮어쓰기
   await outputFile.writeAsBytes(encryptedBytes);
 
   print("Assets compressed and encrypted successfully: $outputFilePath");
