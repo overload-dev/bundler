@@ -52,7 +52,9 @@ Future<void> main(List<String> arguments) async {
       }
 
       // 상대 경로를 유지하며 압축 파일에 추가
-      final String relativePath = p.relative(entity.path, from: assetDir.path);
+      // final String relativePath = p.relative(entity.path, from: assetDir.path);
+      final String relativePath = p.relative(entity.path, from: assetDir.parent.path);
+      archive.addFile(entity, relativePath);
       
       // archive 4.x 대응: 비동기 추가 작업 대기
       await archive.addFile(entity, relativePath);
